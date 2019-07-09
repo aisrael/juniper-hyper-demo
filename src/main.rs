@@ -1,4 +1,9 @@
-use juniper::{self, graphql_value, FieldResult, Variables};
+use futures::future;
+use hyper::rt::{self, Future};
+use hyper::service::service_fn;
+use hyper::Method;
+use hyper::{Body, Response, Server, StatusCode};
+use juniper::{self, FieldResult};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -77,46 +82,45 @@ impl Mutation {
 // Request queries can be executed against a RootNode.
 type Schema = juniper::RootNode<'static, Query, Mutation>;
 
-fn main() {
+fn create_context() -> Context {
     // Create a context object.
     let context = Context::new();
     context.add_user(&User::new("1", "name", "name@example.com"));
+    context
+}
 
-    let (_res, _errors) = juniper::execute(
-        "mutation createUser { createUser(id: \"2\", name: \"name\", email: \"name@example.com\") { id }}",
-        None,
-        &Schema::new(Query, Mutation),
-        &Variables::new(),
-        &context,
-    ).unwrap();
+fn main() {
+    let context = Arc::new(create_context());
+    let root_node = Arc::new(Schema::new(Query, Mutation));
 
-    // Run the executor.
-    match juniper::execute(
-        "query getUser { user(id: \"2\") { id name email } }",
-        None,
-        &Schema::new(Query, Mutation),
-        &Variables::new(),
-        &context,
-    ) {
-        Ok((res, errors)) => {
-            println!("{:?}", errors);
+    let new_service = move || {
+        let root_node = root_node.clone();
+        let context = context.clone();
+        service_fn(move |req| -> Box<Future<Item = _, Error = _> + Send> {
+            let root_node = root_node.clone();
+            let context = context.clone();
+            match (req.method(), req.uri().path()) {
+                (&Method::GET, "/") => Box::new(juniper_hyper::graphiql("/graphql")),
+                (&Method::GET, "/graphql") => {
+                    Box::new(juniper_hyper::graphql(root_node, context, req))
+                }
+                (&Method::POST, "/graphql") => {
+                    Box::new(juniper_hyper::graphql(root_node, context, req))
+                }
+                _ => {
+                    let mut response = Response::new(Body::empty());
+                    *response.status_mut() = StatusCode::NOT_FOUND;
+                    Box::new(future::ok(response))
+                }
+            }
+        })
+    };
 
-            // Ensure the value matches.
-            assert_eq!(
-                res,
-                graphql_value!({
-                    "user": {
-                        "id": "2",
-                        "name": "name",
-                        "email": "name@example.com",
-                    }
-                })
-            );
-            println!("{:?}", res);
-            println!("Ok!");
-        }
-        Err(e) => {
-            println!("{:?}", e);
-        }
-    }
+    let addr = ([127, 0, 0, 1], 3000).into();
+    let server = Server::bind(&addr)
+        .serve(new_service)
+        .map_err(|e| eprintln!("server error: {}", e));
+    println!("Listening on http://{}", addr);
+
+    rt::run(server);
 }
