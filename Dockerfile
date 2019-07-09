@@ -6,7 +6,7 @@ RUN cargo build --release
 
 FROM debian:stretch-slim
 EXPOSE 3000
-ENTRYPOINT [ "/app/server" ]
+ENTRYPOINT [ "/app/server", "0.0.0.0" ]
 RUN mkdir /app
 WORKDIR /app
 COPY --from=builder /src/target/release/server /app/server

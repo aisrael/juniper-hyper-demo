@@ -5,6 +5,8 @@ use hyper::Method;
 use hyper::{Body, Response, Server, StatusCode};
 use juniper::{self, FieldResult};
 use std::collections::HashMap;
+use std::env;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 #[derive(juniper::GraphQLObject, Clone, Debug)]
@@ -89,7 +91,18 @@ fn create_context() -> Context {
     context
 }
 
+fn check_bind_addr_args() -> IpAddr {
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        let s = &args[1];
+        return s.parse::<IpAddr>().unwrap();
+    }
+    [127, 0, 0, 1].into()
+}
+
 fn main() {
+    let bind_addr = check_bind_addr_args();
+
     let context = Arc::new(create_context());
     let root_node = Arc::new(Schema::new(Query, Mutation));
 
@@ -116,7 +129,7 @@ fn main() {
         })
     };
 
-    let addr = ([127, 0, 0, 1], 3000).into();
+    let addr = (bind_addr, 3000).into();
     let server = Server::bind(&addr)
         .serve(new_service)
         .map_err(|e| eprintln!("server error: {}", e));

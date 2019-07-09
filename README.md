@@ -51,4 +51,4 @@ $ ab -p request.json -c 10 -n 1000 127.0.0.1:3000/graphql
 $ docker build -t juniper-hyper-demo .
 ```
 
-(Warning: takes about 10-15 minutes.)
+(Warning: can take up to 45 minutes for a release build.)
