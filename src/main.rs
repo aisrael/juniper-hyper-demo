@@ -1,13 +1,16 @@
-use futures::future;
-use hyper::rt::{self, Future};
-use hyper::service::service_fn;
+use futures::Future;
+use hyper::header::HeaderValue;
+use hyper::server::conn::AddrStream;
+use hyper::service::{make_service_fn, service_fn};
 use hyper::Method;
-use hyper::{Body, Response, Server, StatusCode};
+use hyper::{header, Body, Request, Response, Server, StatusCode};
 use juniper::{self, FieldResult};
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::env;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
+use tokio::runtime::Runtime;
 
 #[derive(juniper::GraphQLObject, Clone, Debug)]
 struct User {
@@ -100,40 +103,45 @@ fn check_bind_addr_args() -> IpAddr {
     [127, 0, 0, 1].into()
 }
 
-fn main() {
+async fn handle(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    Ok(Response::new(Body::from("Hello World\n")))
+}
+
+#[tokio::main]
+async fn main() {
     let bind_addr = check_bind_addr_args();
+    let addr = SocketAddr::new(bind_addr, 3000);
 
     let context = Arc::new(create_context());
     let root_node = Arc::new(Schema::new(Query, Mutation));
 
-    let new_service = move || {
-        let root_node = root_node.clone();
-        let context = context.clone();
-        service_fn(move |req| -> Box<dyn Future<Item = _, Error = _> + Send> {
-            let root_node = root_node.clone();
-            let context = context.clone();
-            match (req.method(), req.uri().path()) {
-                (&Method::GET, "/") => Box::new(juniper_hyper::graphiql("/graphql")),
-                (&Method::GET, "/graphql") => {
-                    Box::new(juniper_hyper::graphql(root_node, context, req))
-                }
-                (&Method::POST, "/graphql") => {
-                    Box::new(juniper_hyper::graphql(root_node, context, req))
-                }
-                _ => {
-                    let mut response = Response::new(Body::empty());
-                    *response.status_mut() = StatusCode::NOT_FOUND;
-                    Box::new(future::ok(response))
-                }
-            }
-        })
-    };
+    // And a MakeService to handle each connection...
+    let make_service = make_service_fn(|socket: &AddrStream| {
+        let c2 = context.clone();
+        let r2 = root_node.clone();
 
-    let addr = (bind_addr, 3000).into();
-    let server = Server::bind(&addr)
-        .serve(new_service)
-        .map_err(|e| eprintln!("server error: {}", e));
-    println!("Listening on http://{}", addr);
+        let remote_addr = socket.remote_addr();
+        async move {
+            let context = c2.clone();
+            let root_node = r2.clone();
+            Ok::<_, Infallible>(service_fn(move |req: Request<Body>| async move {
+                let mut r =
+                    Response::new(Body::from(juniper::graphiql::graphiql_source("/graphql")));
+                *r.status_mut() = StatusCode::OK;
+                r.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/html; charset=utf-8"),
+                );
+                Ok::<_, Infallible>(r)
+            }))
+        }
+    });
 
-    rt::run(server);
+    // Then bind and serve...
+    let server = Server::bind(&addr).serve(make_service);
+
+    // And run forever...
+    if let Err(e) = server.await {
+        eprintln!("server error: {}", e);
+    }
 }

@@ -8,8 +8,11 @@ edition = "2018"
 futures = "0.1"
 graphql-parser = "0.2.3"
 http = "0.1"
-hyper = "0.12"
+# Hyper is an asynchronous HTTP library.
+hyper = "0.13.0"
 juniper = "0.12"
 juniper_hyper = "0.3.0"
 log = "0.4"
 simplelog = "^0.6.0"
+# We use the Tokio async runtime (needed by Hyper)
+tokio = { version = "0.2", features = ["full"] }
