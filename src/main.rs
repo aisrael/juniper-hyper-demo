@@ -137,7 +137,10 @@ async fn main() {
             let context = c2.clone();
             let root_node = r2.clone();
             Ok::<_, Infallible>(service_fn(move |req: Request<Body>| async move {
-                Ok::<_, Infallible>(graphiql("/graphql"))
+                match (req.method(), req.uri().path()) {
+                    (&Method::GET, "/") => Ok::<_, Infallible>(graphiql("/graphql")),
+                    _ => Ok::<_, Infallible>(Response::new(Body::from("Hello World"))),
+                }
             }))
         }
     });
