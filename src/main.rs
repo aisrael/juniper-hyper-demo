@@ -107,6 +107,18 @@ async fn handle(_req: Request<Body>) -> Result<Response<Body>, Infallible> {
     Ok(Response::new(Body::from("Hello World\n")))
 }
 
+pub fn graphiql(graphql_endpoint: &str) -> Response<Body> {
+    let mut r = Response::new(Body::from(juniper::graphiql::graphiql_source(
+        graphql_endpoint,
+    )));
+    *r.status_mut() = StatusCode::OK;
+    r.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    r
+}
+
 #[tokio::main]
 async fn main() {
     let bind_addr = check_bind_addr_args();
@@ -125,14 +137,7 @@ async fn main() {
             let context = c2.clone();
             let root_node = r2.clone();
             Ok::<_, Infallible>(service_fn(move |req: Request<Body>| async move {
-                let mut r =
-                    Response::new(Body::from(juniper::graphiql::graphiql_source("/graphql")));
-                *r.status_mut() = StatusCode::OK;
-                r.headers_mut().insert(
-                    header::CONTENT_TYPE,
-                    HeaderValue::from_static("text/html; charset=utf-8"),
-                );
-                Ok::<_, Infallible>(r)
+                Ok::<_, Infallible>(graphiql("/graphql"))
             }))
         }
     });
